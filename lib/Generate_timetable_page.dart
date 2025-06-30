@@ -46,6 +46,9 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
   List<TimeOfDay> _timeSlots = [];
   Map<String, Map<String, String>> _timetableData = {}; // day -> timeSlot -> lecture
 
+  // New: To store user-editable display strings for time slots
+  Map<TimeOfDay, String> _displayTimeSlotStrings = {};
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +116,11 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
       return;
     }
 
+    // Initialize _displayTimeSlotStrings
+    _displayTimeSlotStrings.clear();
+    for (var slotTime in _timeSlots) {
+      _displayTimeSlotStrings[slotTime] = _formatTimeSlot(slotTime);
+    }
 
     setState(() {
       _currentStep = 1; // Move to the lecture details step
@@ -263,7 +271,7 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
     final pdf = pw.Document();
 
     // Prepare table headers
-    final List<String> tableHeaders = ['Time Slots'];
+    final List<String> tableHeaders = ['Time']; // Updated header for PDF
     tableHeaders.addAll(_selectedDisplayDays);
 
     // Prepare table data
@@ -274,10 +282,11 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
     // Add data rows
     for (var timeSlot in _timeSlots) {
       final List<String> row = [];
-      row.add(_formatTimeSlot(timeSlot)); // First cell is the time slot
-      String formattedSlot = _formatTimeSlot(timeSlot);
+      // Use the potentially edited display string for the time slot column
+      row.add(_displayTimeSlotStrings[timeSlot] ?? _formatTimeSlot(timeSlot));
+      String formattedSlotForData = _formatTimeSlot(timeSlot); // Use original for data lookup
       for (var day in _selectedDisplayDays) {
-        row.add(_timetableData[day]![formattedSlot] ?? 'Free');
+        row.add(_timetableData[day]![formattedSlotForData] ?? 'Free');
       }
       tableData.add(row);
     }
@@ -316,8 +325,6 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
 
     // Share or print the PDF
     await Printing.sharePdf(bytes: await pdf.save(), filename: '${_timetableTitle.replaceAll(' ', '_')}_timetable.pdf');
-    // You can also use Printing.layoutPdf for direct printing
-    // await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
   }
   // --- End PDF Generation Logic ---
 
@@ -344,6 +351,7 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
                 _totalLecturesNeeded = null;
                 _assignedLecturesCount = 0;
                 _subjects.clear();
+                _displayTimeSlotStrings.clear(); // Clear display strings when going back to step 0
               }
             });
           },
@@ -653,7 +661,7 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
     }
 
     List<DataColumn> columns = [
-      const DataColumn(label: Text('Time Slots')),
+      const DataColumn(label: Text('Time')), // Changed label to "Time"
     ];
     for (var day in _selectedDisplayDays) {
       columns.add(DataColumn(label: Text(day)));
@@ -662,14 +670,19 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
     List<DataRow> rows = [];
     for (var timeSlot in _timeSlots) {
       List<DataCell> cells = [
-        DataCell(Text(_formatTimeSlot(timeSlot))),
+        DataCell(
+          Text(_displayTimeSlotStrings[timeSlot] ?? _formatTimeSlot(timeSlot)), // Use edited string or default
+          onTap: () {
+            _editTimeSlotDisplay(timeSlot); // Allow editing the time slot display string
+          },
+        ),
       ];
-      String formattedSlot = _formatTimeSlot(timeSlot); // Format once per row
+      String formattedSlotForData = _formatTimeSlot(timeSlot); // Use original format for _timetableData lookup
       for (var day in _selectedDisplayDays) {
         cells.add(DataCell(
-          Text(_timetableData[day]![formattedSlot] ?? 'Free'),
+          Text(_timetableData[day]![formattedSlotForData] ?? 'Free'),
           onTap: () {
-            _editLectureSlot(day, formattedSlot);
+            _editLectureSlot(day, formattedSlotForData);
           },
         ));
       }
@@ -748,6 +761,46 @@ class _GenerateTimetablePageState extends State<GenerateTimetablePage> {
               onPressed: () {
                 setState(() {
                   _timetableData[day]![timeSlot] = lectureController.text.isEmpty ? 'Free' : lectureController.text;
+                });
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // New function to edit the display string of a time slot
+  void _editTimeSlotDisplay(TimeOfDay originalTimeSlot) {
+    TextEditingController timeSlotController = TextEditingController(
+      text: _displayTimeSlotStrings[originalTimeSlot],
+    );
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Edit Time Slot Display"),
+          content: TextField(
+            controller: timeSlotController,
+            decoration: const InputDecoration(
+                labelText: "Enter new time range (e.g., 7:00 AM - 7:45 AM)",
+                hintText: "e.g., 7:00 AM - 7:45 AM"
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              child: const Text("Save"),
+              onPressed: () {
+                setState(() {
+                  _displayTimeSlotStrings[originalTimeSlot] = timeSlotController.text.trim();
                 });
                 Navigator.of(context).pop();
               },
